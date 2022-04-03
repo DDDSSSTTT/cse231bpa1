@@ -1,6 +1,6 @@
-import { Stmt, Expr } from "./ast";
-import { parse } from "./parser";
-
+import {BinOp, Expr, Stmt} from "./ast";
+import {parse} from "./parser";
+import wabt from 'wabt';
 // https://learnxinyminutes.com/docs/wasm/
 
 type LocalEnv = Map<string, boolean>;
@@ -8,7 +8,15 @@ type LocalEnv = Map<string, boolean>;
 type CompileResult = {
   wasmSource: string,
 };
+export async function run(watSource : string) : Promise<number> {
+  const wabtApi = await wabt();
 
+  const parsed = wabtApi.parseWat("example", watSource);
+  const binary = parsed.toBinary({});
+  const wasmModule = await WebAssembly.instantiate(binary.buffer, {});
+
+  return (wasmModule.instance.exports as any)._start();
+}
 export function compile(source: string) : CompileResult {
   const ast = parse(source);
   const definedVars = new Set();
@@ -49,9 +57,31 @@ function codeGenExpr(expr : Expr) : Array<string> {
     case "builtin1":
       const argStmts = codeGenExpr(expr.arg);
       return argStmts.concat([`(call $${expr.name})`]);
+    case "builtin2":
+      const arg1Stmts = codeGenExpr(expr.arg1);
+      const arg2Stmts = codeGenExpr(expr.arg2);
+      return [...arg1Stmts,...arg2Stmts,`(call $${expr.name})`];
     case "num":
       return ["(i32.const " + expr.value + ")"];
     case "id":
       return [`(local.get $${expr.name})`];
+    case "binexpr":
+      const leftStmts = codeGenExpr(expr.left);
+      const rightStmts= codeGenExpr(expr.right);
+      const opStmt = codeGenBinOp(expr.op);
+
+      return [...leftStmts,...rightStmts,opStmt];
+  }
+}
+function codeGenBinOp(op: BinOp) : string{
+  switch (op) {
+    case BinOp.Plus:
+        return "(i32.add)"
+    case BinOp.Minus:
+        return "(i32.sub)"
+    case BinOp.Mul:
+        return "(i32.mul)"
+
+
   }
 }
